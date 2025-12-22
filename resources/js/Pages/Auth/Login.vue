@@ -1,100 +1,110 @@
 <script setup>
-import Checkbox from '@/Components/Checkbox.vue';
-import GuestLayout from '@/Layouts/GuestLayout.vue';
-import InputError from '@/Components/InputError.vue';
-import InputLabel from '@/Components/InputLabel.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import TextInput from '@/Components/TextInput.vue';
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import GuestLayout from '@/Layouts/GuestLayout.vue'
+import Checkbox from '@/Components/Checkbox.vue'
+import InputError from '@/Components/InputError.vue'
+import InputLabel from '@/Components/InputLabel.vue'
+import PrimaryButton from '@/Components/PrimaryButton.vue'
+import TextInput from '@/Components/TextInput.vue'
+import { Head, Link, useForm, usePage } from '@inertiajs/vue3'
+import { useTranslations } from '@/i18n'
 
-defineProps({
-    canResetPassword: {
-        type: Boolean,
-    },
-    status: {
-        type: String,
-    },
-});
+const page = usePage()
+const { t } = useTranslations()
 
 const form = useForm({
-    email: '',
-    password: '',
-    remember: false,
-});
+  email: '',
+  password: '',
+  remember: false,
+})
 
 const submit = () => {
-    form.post(route('login'), {
-        onFinish: () => form.reset('password'),
-    });
-};
+  form.post(route('login'), {
+    onFinish: () => form.reset('password'),
+  })
+}
 </script>
 
 <template>
-    <GuestLayout>
-        <Head title="Log in" />
+  <GuestLayout>
+    <Head :title="t('Sign in')" />
 
-        <div v-if="status" class="mb-4 text-sm font-medium text-green-600">
-            {{ status }}
+    <div class="space-y-6">
+      <div>
+        <h1 class="text-2xl font-semibold text-slate-900">{{ t('Sign in') }}</h1>
+        <p class="text-sm text-slate-500">{{ t('Welcome back. Continue where you left off.') }}</p>
+      </div>
+
+      <div v-if="page.props.flash?.status" class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+        {{ page.props.flash.status }}
+      </div>
+
+      <form class="space-y-4" @submit.prevent="submit">
+        <div>
+          <InputLabel for="email" :value="t('Email')" />
+          <TextInput
+            id="email"
+            type="email"
+            class="mt-1 block w-full"
+            v-model="form.email"
+            required
+            autocomplete="username"
+          />
+          <InputError class="mt-2" :message="form.errors.email" />
         </div>
 
-        <form @submit.prevent="submit">
-            <div>
-                <InputLabel for="email" value="Email" />
+        <div>
+          <InputLabel for="password" :value="t('Password')" />
+          <TextInput
+            id="password"
+            type="password"
+            class="mt-1 block w-full"
+            v-model="form.password"
+            required
+            autocomplete="current-password"
+          />
+          <InputError class="mt-2" :message="form.errors.password" />
+        </div>
 
-                <TextInput
-                    id="email"
-                    type="email"
-                    class="mt-1 block w-full"
-                    v-model="form.email"
-                    required
-                    autofocus
-                    autocomplete="username"
-                />
+        <div class="flex items-center justify-between text-sm">
+          <label class="flex items-center gap-2 text-slate-600">
+            <Checkbox v-model:checked="form.remember" name="remember" />
+            {{ t('Remember me') }}
+          </label>
+          <Link :href="route('password.request')" class="text-slate-600 hover:text-slate-900">
+            {{ t('Forgot password?') }}
+          </Link>
+        </div>
 
-                <InputError class="mt-2" :message="form.errors.email" />
-            </div>
+        <PrimaryButton class="w-full" :class="{ 'opacity-25': form.processing }" :disabled="form.processing">
+          {{ form.processing ? t('Signing in...') : t('Sign in') }}
+        </PrimaryButton>
+      </form>
 
-            <div class="mt-4">
-                <InputLabel for="password" value="Password" />
+      <div class="flex items-center gap-3 text-xs text-slate-400">
+        <span class="h-px flex-1 bg-slate-200" />
+        {{ t('Or continue with') }}
+        <span class="h-px flex-1 bg-slate-200" />
+      </div>
 
-                <TextInput
-                    id="password"
-                    type="password"
-                    class="mt-1 block w-full"
-                    v-model="form.password"
-                    required
-                    autocomplete="current-password"
-                />
+      <div class="grid gap-2 sm:grid-cols-2">
+        <Link
+          :href="route('social.redirect', { provider: 'google' })"
+          class="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300"
+        >
+          Google
+        </Link>
+        <Link
+          :href="route('social.redirect', { provider: 'facebook' })"
+          class="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300"
+        >
+          Facebook
+        </Link>
+      </div>
 
-                <InputError class="mt-2" :message="form.errors.password" />
-            </div>
-
-            <div class="mt-4 block">
-                <label class="flex items-center">
-                    <Checkbox name="remember" v-model:checked="form.remember" />
-                    <span class="ms-2 text-sm text-gray-600"
-                        >Remember me</span
-                    >
-                </label>
-            </div>
-
-            <div class="mt-4 flex items-center justify-end">
-                <Link
-                    v-if="canResetPassword"
-                    :href="route('password.request')"
-                    class="rounded-md text-sm text-gray-600 underline hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                >
-                    Forgot your password?
-                </Link>
-
-                <PrimaryButton
-                    class="ms-4"
-                    :class="{ 'opacity-25': form.processing }"
-                    :disabled="form.processing"
-                >
-                    Log in
-                </PrimaryButton>
-            </div>
-        </form>
-    </GuestLayout>
+      <div class="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600">
+        <Link :href="route('register')" class="hover:text-slate-900">{{ t('Create an account') }}</Link>
+        <Link :href="route('claim-account.create')" class="hover:text-slate-900">{{ t('Claim existing order') }}</Link>
+      </div>
+    </div>
+  </GuestLayout>
 </template>

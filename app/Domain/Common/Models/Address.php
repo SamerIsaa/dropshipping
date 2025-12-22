@@ -14,6 +14,7 @@ class Address extends Model
 
     protected $fillable = [
         'user_id',
+        'customer_id',
         'name',
         'phone',
         'line1',
@@ -24,14 +25,21 @@ class Address extends Model
         'country',
         'type',
         'metadata',
+        'is_default',
     ];
 
     protected $casts = [
         'metadata' => 'array',
+        'is_default' => 'boolean',
     ];
 
     public function user(): BelongsTo
     {
         return $this->belongsTo(\App\Models\User::class);
+    }
+
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Customer::class);
     }
 }

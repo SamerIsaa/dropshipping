@@ -15,6 +15,8 @@ use App\Listeners\Orders\SendShippingDelayNotification;
 use App\Listeners\Orders\SendCustomsInfoNotification;
 use App\Listeners\Orders\SendDeliveryConfirmedNotification;
 use App\Listeners\Orders\SendRefundProcessedNotification;
+use App\Listeners\Auth\LogAdminLogin;
+use Illuminate\Auth\Events\Login;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
 
 class EventServiceProvider extends ServiceProvider
@@ -25,6 +27,9 @@ class EventServiceProvider extends ServiceProvider
      * @var array<class-string, array<int, class-string>>
      */
     protected $listen = [
+        Login::class => [
+            LogAdminLogin::class,
+        ],
         OrderPlaced::class => [
             SendOrderConfirmedNotification::class,
         ],

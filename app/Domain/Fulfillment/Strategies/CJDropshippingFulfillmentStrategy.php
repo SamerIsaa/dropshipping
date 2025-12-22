@@ -1,0 +1,123 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Domain\Fulfillment\Strategies;
+
+use App\Domain\Fulfillment\Contracts\FulfillmentStrategy;
+use App\Domain\Fulfillment\DTOs\FulfillmentRequestData;
+use App\Domain\Fulfillment\DTOs\FulfillmentResult;
+use App\Domain\Fulfillment\Exceptions\FulfillmentException;
+use App\Domain\Fulfillment\Clients\CJDropshippingClient;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Log;
+
+class CJDropshippingFulfillmentStrategy implements FulfillmentStrategy
+{
+    public function __construct(private readonly CJDropshippingClient $client)
+    {
+    }
+
+    public function dispatch(FulfillmentRequestData $data): FulfillmentResult
+    {
+        $providerSettings = $data->provider->settings ?? [];
+        $payload = [
+            'orderNumber' => $data->orderItem->order?->number,
+            'shippingZip' => $data->shippingAddress?->postal_code,
+            'shippingCountry' => $data->shippingAddress?->country,
+            'shippingCountryCode' => $data->shippingAddress?->country,
+            'shippingProvince' => $data->shippingAddress?->state,
+            'shippingCity' => $data->shippingAddress?->city,
+            'shippingCounty' => null,
+            'shippingPhone' => $data->shippingAddress?->phone,
+            'shippingCustomerName' => $data->shippingAddress?->name,
+            'shippingAddress' => $data->shippingAddress?->line1,
+            'shippingAddress2' => $data->shippingAddress?->line2,
+            'taxId' => null,
+            'remark' => null,
+            'email' => $data->orderItem->order?->email,
+            'consigneeID' => null,
+            'payType' => $providerSettings['pay_type'] ?? 3,
+            'shopAmount' => null,
+            'logisticName' => $providerSettings['shipping_method'] ?? 'PostNL',
+            'fromCountryCode' => $providerSettings['from_country'] ?? 'CN',
+            'houseNumber' => null,
+            'iossType' => $providerSettings['ioss_type'] ?? null,
+            'platform' => $providerSettings['platform'] ?? 'Api',
+            'iossNumber' => $providerSettings['ioss_number'] ?? null,
+            'shopLogisticsType' => $providerSettings['shop_logistics_type'] ?? 1,
+            'storageId' => $providerSettings['storage_id'] ?? null,
+            'products' => [
+                [
+                    'vid' => $data->supplierProduct?->external_product_id ?? null,
+                    'sku' => $data->supplierProduct?->external_sku ?? $data->orderItem->productVariant?->sku,
+                    'quantity' => $data->orderItem->quantity ?? 1,
+                    'storeLineItemId' => (string) $data->orderItem->id,
+                ],
+            ],
+        ];
+
+        try {
+            $response = $this->client->createOrderV3($payload);
+            $body = $this->validatedResponse($response, 'CJ order create failed');
+        } catch (\Throwable $e) {
+            Log::warning('CJ fulfillment dispatch failed', [
+                'order_item_id' => $data->orderItem->id,
+                'provider_id' => $data->provider->id ?? null,
+                'payload' => $payload,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw new FulfillmentException('CJ order create failed: ' . $e->getMessage(), previous: $e);
+        }
+
+        $success = Arr::get($body, 'result') === true || Arr::get($body, 'code') === 200;
+        $externalId = Arr::get($body, 'data.orderId') ?? Arr::get($body, 'data.orderNumber');
+        $trackingNumber = Arr::get($body, 'data.trackingNumber');
+        $trackingUrl = Arr::get($body, 'data.trackingUrl');
+
+        return new FulfillmentResult(
+            status: $success ? 'succeeded' : 'needs_action',
+            externalReference: $externalId,
+            trackingNumber: $trackingNumber,
+            trackingUrl: $trackingUrl,
+            rawResponse: $body ?? []
+        );
+    }
+
+    private function formatAddress(FulfillmentRequestData $data): array
+    {
+        $addr = $data->shippingAddress;
+        if (! $addr) {
+            throw new FulfillmentException('Missing shipping address for CJ dispatch.');
+        }
+
+        return [
+            'name' => $addr->name,
+            'phone' => $addr->phone,
+            'countryCode' => $addr->country,
+            'state' => $addr->state,
+            'city' => $addr->city,
+            'address1' => $addr->line1,
+            'address2' => $addr->line2,
+            'zip' => $addr->postal_code,
+        ];
+    }
+
+    private function validatedResponse($response, string $context): array
+    {
+        if ($response->failed()) {
+            throw new FulfillmentException("{$context}: " . $response->body());
+        }
+
+        $body = $response->json() ?? [];
+        $code = Arr::get($body, 'code');
+        $status = Arr::get($body, 'status');
+
+        if ($code && (int) $code !== 200 && strtolower((string) $status) !== 'success') {
+            throw new FulfillmentException("{$context}: " . json_encode($body));
+        }
+
+        return $body;
+    }
+}

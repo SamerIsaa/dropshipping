@@ -1,0 +1,285 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Controllers\Storefront;
+
+use App\Http\Controllers\Controller;
+use App\Models\Product;
+use App\Domain\Products\Models\ProductVariant;
+use App\Models\Coupon;
+use App\Infrastructure\Fulfillment\Clients\CJDropshippingClient;
+use App\Services\Api\ApiException;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Inertia\Inertia;
+use Inertia\Response;
+use Illuminate\Support\Carbon;
+
+class CartController extends Controller
+{
+    public function index(): Response
+    {
+        $cart = $this->cart();
+        $coupon = session('cart_coupon');
+        $discount = $this->discount($cart, $coupon);
+
+        return Inertia::render('Cart/Index', [
+            'lines' => $cart,
+            'currency' => $cart[0]['currency'] ?? 'USD',
+            'subtotal' => $this->subtotal($cart),
+            'discount' => $discount,
+            'coupon' => $coupon,
+        ]);
+    }
+
+    public function store(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'product_id' => ['required', 'integer', 'exists:products,id'],
+            'variant_id' => ['nullable', 'integer'],
+            'quantity' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $product = Product::query()
+            ->where('is_active', true)
+            ->with(['images', 'variants', 'defaultFulfillmentProvider'])
+            ->findOrFail($data['product_id']);
+
+        $variant = null;
+        if (! empty($data['variant_id'])) {
+            $variant = $product->variants->firstWhere('id', (int) $data['variant_id']);
+        }
+
+        $cart = collect($this->cart());
+
+        $existing = $cart->first(function (array $line) use ($product, $variant) {
+            return $line['product_id'] === $product->id
+                && ($line['variant_id'] ?? null) === ($variant?->id);
+        });
+
+        $incomingQty = (int) ($data['quantity'] ?? 1);
+
+        if ($existing) {
+            $newQty = $existing['quantity'] + $incomingQty;
+            if (! $this->hasCjStock($existing, $newQty)) {
+                return back()->withErrors(['cart' => 'Insufficient stock for this item.']);
+            }
+
+            $cart = $cart->map(function (array $line) use ($existing, $incomingQty) {
+                if ($line['id'] === $existing['id']) {
+                    $line['quantity'] += $incomingQty;
+                }
+                return $line;
+            });
+        } else {
+            $line = $this->buildLine($product, $variant, $incomingQty);
+            if (! $this->hasCjStock($line, $incomingQty)) {
+                return back()->withErrors(['cart' => 'Insufficient stock for this item.']);
+            }
+            $cart->push($line);
+        }
+
+        session(['cart' => $cart->values()->all()]);
+
+        return back()->with('cart_notice', 'Added to cart');
+    }
+
+    public function destroy(string $lineId): RedirectResponse
+    {
+        $cart = collect($this->cart())
+            ->reject(fn (array $line) => $line['id'] === $lineId)
+            ->values()
+            ->all();
+
+        session(['cart' => $cart]);
+
+        return back();
+    }
+
+    public function update(string $lineId, Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'quantity' => ['required', 'integer', 'min:1'],
+        ]);
+
+        $cart = collect($this->cart())->map(function (array $line) use ($lineId, $data) {
+            if ($line['id'] === $lineId) {
+                $line['quantity'] = (int) $data['quantity'];
+            }
+            return $line;
+        })->values()->all();
+
+        foreach ($cart as $line) {
+            if ($line['id'] === $lineId && ! $this->hasCjStock($line, $line['quantity'])) {
+                return back()->withErrors(['cart' => 'Insufficient stock for this item.']);
+            }
+        }
+
+        session(['cart' => $cart]);
+
+        return back();
+    }
+
+    private function cart(): array
+    {
+        return session('cart', []);
+    }
+
+    private function subtotal(array $cart): float
+    {
+        return collect($cart)->reduce(function ($carry, $line) {
+            return $carry + ((float) $line['price'] * (int) $line['quantity']);
+        }, 0.0);
+    }
+
+    private function discount(array $cart, ?array $coupon): float
+    {
+        if (! $coupon) {
+            return 0.0;
+        }
+
+        $subtotal = $this->subtotal($cart);
+        if ($coupon['min_order_total'] && $subtotal < (float) $coupon['min_order_total']) {
+            return 0.0;
+        }
+
+        if ($coupon['type'] === 'fixed') {
+            return min((float) $coupon['amount'], $subtotal);
+        }
+
+        return round($subtotal * ((float) $coupon['amount'] / 100), 2);
+    }
+
+    private function buildLine(Product $product, ?ProductVariant $variant, int $quantity): array
+    {
+        $selectedVariant = $variant ?? $product->variants->first();
+
+        return [
+            'id' => Str::uuid()->toString(),
+            'product_id' => $product->id,
+            'variant_id' => $selectedVariant?->id,
+            'name' => $product->name,
+            'variant' => $selectedVariant?->title,
+            'quantity' => $quantity,
+            'price' => (float) ($selectedVariant?->price ?? $product->selling_price ?? 0),
+            'currency' => $selectedVariant?->currency ?? $product->currency ?? 'USD',
+            'media' => $product->images?->sortBy('position')->pluck('url')->values()->all() ?? [],
+            'fulfillment_provider_id' => $product->default_fulfillment_provider_id,
+            'sku' => $selectedVariant?->sku,
+            'cj_pid' => $product->attributes['cj_pid'] ?? null,
+            'cj_vid' => $selectedVariant?->metadata['cj_vid'] ?? null,
+            'stock_on_hand' => $product->stock_on_hand,
+        ];
+    }
+
+    public function applyCoupon(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'code' => ['required', 'string', 'max:255'],
+        ]);
+
+        $now = Carbon::now();
+        $coupon = Coupon::query()
+            ->where('code', $data['code'])
+            ->where('is_active', true)
+            ->where(fn ($query) => $query->whereNull('starts_at')->orWhere('starts_at', '<=', $now))
+            ->where(fn ($query) => $query->whereNull('ends_at')->orWhere('ends_at', '>=', $now))
+            ->first();
+
+        if (! $coupon) {
+            return back()->withErrors(['code' => 'Coupon not found or inactive.'])->withInput();
+        }
+
+        session(['cart_coupon' => [
+            'id' => $coupon->id,
+            'code' => $coupon->code,
+            'type' => $coupon->type,
+            'amount' => $coupon->amount,
+            'min_order_total' => $coupon->min_order_total,
+            'description' => $coupon->description,
+        ]]);
+
+        return back()->with('cart_notice', 'Coupon applied.');
+    }
+
+    public function removeCoupon(): RedirectResponse
+    {
+        session()->forget('cart_coupon');
+        return back()->with('cart_notice', 'Coupon removed.');
+    }
+
+    private function hasCjStock(array $line, int $desiredQty): bool
+    {
+        $client = app(CJDropshippingClient::class);
+
+        try {
+            if ($line['cj_vid'] ?? false) {
+                $resp = $client->getStockByVid((string) $line['cj_vid']);
+            } elseif ($line['sku'] ?? false) {
+                $resp = $client->getStockBySku((string) $line['sku']);
+            } elseif ($line['cj_pid'] ?? false) {
+                $resp = $client->getStockByPid((string) $line['cj_pid']);
+            } elseif (array_key_exists('stock_on_hand', $line) && is_numeric($line['stock_on_hand'])) {
+                return (int) $line['stock_on_hand'] >= $desiredQty;
+            } else {
+                return true;
+            }
+
+            return $this->sumStorage($resp->data ?? null) >= $desiredQty;
+        } catch (ApiException $exception) {
+            Log::warning('CJ stock check failed', ['error' => $exception->getMessage(), 'line' => $line['id'] ?? null]);
+            return $this->fallbackStockCheck($line, $desiredQty);
+        } catch (\Throwable $exception) {
+            Log::error('CJ stock check failed', ['error' => $exception->getMessage(), 'line' => $line['id'] ?? null]);
+            return $this->fallbackStockCheck($line, $desiredQty);
+        }
+    }
+
+    private function sumStorage(mixed $payload): int
+    {
+        $total = 0;
+
+        $add = function ($value) use (&$total) {
+            if (is_numeric($value)) {
+                $total += (int) $value;
+            }
+        };
+
+        if (is_numeric($payload)) {
+            $add($payload);
+            return $total;
+        }
+
+        if (is_array($payload)) {
+            if (array_key_exists('storageNum', $payload)) {
+                $add($payload['storageNum']);
+            }
+
+            foreach ($payload as $entry) {
+                if (is_array($entry) && array_key_exists('storageNum', $entry)) {
+                    $add($entry['storageNum']);
+                } elseif (is_array($entry)) {
+                    foreach ($entry as $deep) {
+                        if (is_array($deep) && array_key_exists('storageNum', $deep)) {
+                            $add($deep['storageNum']);
+                        }
+                    }
+                }
+            }
+        }
+
+        return $total;
+    }
+
+    private function fallbackStockCheck(array $line, int $desiredQty): bool
+    {
+        if (array_key_exists('stock_on_hand', $line) && is_numeric($line['stock_on_hand'])) {
+            return (int) $line['stock_on_hand'] >= $desiredQty;
+        }
+
+        return true;
+    }
+}

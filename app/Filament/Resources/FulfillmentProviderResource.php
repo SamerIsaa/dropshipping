@@ -7,9 +7,12 @@ namespace App\Filament\Resources;
 use App\Domain\Fulfillment\Models\FulfillmentProvider;
 use App\Filament\Resources\FulfillmentProviderResource\Pages;
 use BackedEnum;
+use Filament\Actions\BulkActionGroup as ActionsBulkActionGroup;
+use Filament\Actions\DeleteBulkAction as ActionsDeleteBulkAction;
+use Filament\Actions\EditAction as ActionsEditAction;
 use Filament\Forms;
 use Filament\Forms\Components\Section;
-use Filament\Resources\Resource;
+use App\Filament\Resources\BaseResource;
 use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Actions\BulkActionGroup;
@@ -17,11 +20,13 @@ use Filament\Tables\Actions\DeleteBulkAction;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Table;
 
-class FulfillmentProviderResource extends Resource
+class FulfillmentProviderResource extends BaseResource
 {
     protected static ?string $model = FulfillmentProvider::class;
 
     protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-truck';
+    protected static string|\UnitEnum|null $navigationGroup = 'Fulfillment';
+    protected static ?int $navigationSort = 30;
 
     public static function form(Schema $schema): Schema
     {
@@ -65,11 +70,11 @@ class FulfillmentProviderResource extends Resource
                 Tables\Filters\TernaryFilter::make('is_active'),
             ])
             ->recordActions([
-                EditAction::make(),
+                ActionsEditAction::make(),
             ])
             ->toolbarActions([
-                 BulkActionGroup::make([
-                   DeleteBulkAction::make(),
+                 ActionsBulkActionGroup::make([
+                   ActionsDeleteBulkAction::make(),
                 ]),
             ]);
     }
@@ -83,3 +88,6 @@ class FulfillmentProviderResource extends Resource
         ];
     }
 }
+
+
+

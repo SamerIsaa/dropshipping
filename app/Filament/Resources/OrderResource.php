@@ -8,24 +8,29 @@ use App\Filament\Resources\OrderResource\Pages;
 use App\Filament\Resources\OrderResource\RelationManagers\OrderItemsRelationManager;
 use App\Models\Order;
 use BackedEnum;
-use Filament\Resources\Resource;
+use App\Filament\Resources\BaseResource;
 use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Forms;
 use App\Filament\Resources\OrderResource\RelationManagers\OrderEventsRelationManager;
 use App\Filament\Resources\OrderResource\RelationManagers\PaymentEventsRelationManager;
+use Filament\Actions\BulkActionGroup as ActionsBulkActionGroup;
+use Filament\Actions\DeleteBulkAction as ActionsDeleteBulkAction;
+use Filament\Actions\ViewAction as ActionsViewAction;
 use Filament\Tables\Actions\BulkActionGroup;
 use Filament\Tables\Actions\DeleteBulkAction;
 use Filament\Tables\Actions\ViewAction;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
 
-class OrderResource extends Resource
+class OrderResource extends BaseResource
 {
     protected static ?string $model = Order::class;
 
     protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-clipboard-document-list';
+    protected static string|\UnitEnum|null $navigationGroup = 'Sales';
+    protected static ?int $navigationSort = 10;
 
     public static function table(Table $table): Table
     {
@@ -57,7 +62,7 @@ class OrderResource extends Resource
                     ->label('Fulfillment provider')
                     ->relationship('orderItems.fulfillmentProvider', 'name'),
                 Tables\Filters\Filter::make('placed_at')
-                    ->form([
+                    ->schema([
                         Forms\Components\DatePicker::make('from')->label('From'),
                         Forms\Components\DatePicker::make('until')->label('Until'),
                     ])
@@ -68,11 +73,11 @@ class OrderResource extends Resource
                     }),
             ])
             ->recordActions([
-                ViewAction::make(),
+                ActionsViewAction::make(),
             ])
             ->toolbarActions([
-              BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+              ActionsBulkActionGroup::make([
+                    ActionsDeleteBulkAction::make(),
                 ]),
             ]);
     }
@@ -124,6 +129,7 @@ class OrderResource extends Resource
             OrderItemsRelationManager::class,
             OrderEventsRelationManager::class,
             PaymentEventsRelationManager::class,
+            \App\Filament\Resources\OrderResource\RelationManagers\OrderAuditLogsRelationManager::class,
             \App\Filament\Resources\OrderResource\RelationManagers\FulfillmentEventsRelationManager::class,
         ];
     }
@@ -136,3 +142,6 @@ class OrderResource extends Resource
         ];
     }
 }
+
+
+

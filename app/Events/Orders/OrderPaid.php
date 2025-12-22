@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Events\Orders;
 
-use App\Models\Order;
+use App\Domain\Orders\Models\Order;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 

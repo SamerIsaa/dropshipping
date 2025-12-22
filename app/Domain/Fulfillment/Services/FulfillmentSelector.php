@@ -22,12 +22,23 @@ class FulfillmentSelector
     {
         $provider = $this->determineProvider($orderItem);
 
-        if (! class_exists($provider->driver_class)) {
+        $driverClass = $this->mapLegacyDriver($provider->driver_class, $provider->code);
+
+        if (! class_exists($driverClass)) {
             throw new FulfillmentException("Fulfillment driver not found for provider [{$provider->code}]");
         }
 
+        if (! is_subclass_of($driverClass, FulfillmentStrategy::class)) {
+            throw new FulfillmentException("Fulfillment driver for provider [{$provider->code}] must implement FulfillmentStrategy");
+        }
+
+        // Only allow strategy classes within the expected namespace to avoid arbitrary class loading.
+        if (! str_starts_with($driverClass, 'App\\Domain\\Fulfillment\\Strategies\\')) {
+            throw new FulfillmentException("Fulfillment driver for provider [{$provider->code}] is not in the allowed namespace");
+        }
+
         /** @var FulfillmentStrategy $strategy */
-        $strategy = $this->container->make($provider->driver_class, ['provider' => $provider]);
+        $strategy = $this->container->make($driverClass, ['provider' => $provider]);
 
         return $strategy;
     }
@@ -43,5 +54,25 @@ class FulfillmentSelector
         }
 
         return $this->decisionService->selectProvider($orderItem);
+    }
+
+    private function mapLegacyDriver(?string $driverClass, string $providerCode): string
+    {
+        if ($driverClass && str_starts_with($driverClass, 'App\\Domain\\Fulfillment\\Strategies\\')) {
+            return $driverClass;
+        }
+
+        $map = [
+            'App\\Infrastructure\\Fulfillment\\Drivers\\ManualDriver' => \App\Domain\Fulfillment\Strategies\ManualFulfillmentStrategy::class,
+            'App\\Infrastructure\\Fulfillment\\Drivers\\SupplierDriver' => \App\Domain\Fulfillment\Strategies\ManualFulfillmentStrategy::class,
+            'App\\Infrastructure\\Fulfillment\\Drivers\\AliExpressDriver' => \App\Domain\Fulfillment\Strategies\AliExpressFulfillmentStrategy::class,
+            null => \App\Domain\Fulfillment\Strategies\ManualFulfillmentStrategy::class,
+        ];
+
+        if (isset($map[$driverClass])) {
+            return $map[$driverClass];
+        }
+
+        throw new FulfillmentException("Fulfillment driver not found for provider [{$providerCode}]");
     }
 }

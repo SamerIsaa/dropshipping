@@ -25,7 +25,18 @@ class ShippingDelayNotification extends Notification implements ShouldQueue
 
     public function via(object $notifiable): array
     {
-        return ['mail', WhatsAppChannel::class];
+        return ['database', 'broadcast', 'mail', WhatsAppChannel::class];
+    }
+
+    public function toArray(object $notifiable): array
+    {
+        return [
+            'order_number' => $this->order->number,
+            'status' => $this->order->status,
+            'eta' => $this->eta,
+            'reason' => $this->reason,
+            'tracking_url' => $this->trackingLink(),
+        ];
     }
 
     public function toMail(object $notifiable): MailMessage

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Notifications\Orders;
 
-use App\Models\Order;
+use App\Domain\Orders\Models\Order;
 use App\Notifications\Channels\WhatsAppChannel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -21,7 +21,19 @@ class OrderConfirmedNotification extends Notification implements ShouldQueue
 
     public function via(object $notifiable): array
     {
-        return ['mail', WhatsAppChannel::class];
+        return ['database', 'broadcast', 'mail', WhatsAppChannel::class];
+    }
+
+    public function toArray(object $notifiable): array
+    {
+        return [
+            'order_number' => $this->order->number,
+            'status' => $this->order->status,
+            'payment_status' => $this->order->payment_status,
+            'total' => $this->order->grand_total,
+            'currency' => $this->order->currency,
+            'tracking_url' => $this->trackingLink(),
+        ];
     }
 
     public function toMail(object $notifiable): MailMessage

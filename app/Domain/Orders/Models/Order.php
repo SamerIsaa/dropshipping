@@ -36,6 +36,7 @@ class Order extends Model
         'billing_address_id',
         'shipping_method',
         'delivery_notes',
+        'coupon_code',
         'placed_at',
     ];
 

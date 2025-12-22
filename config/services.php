@@ -35,4 +35,67 @@ return [
         ],
     ],
 
+    'payments' => [
+        'webhook_secret' => env('PAYMENTS_WEBHOOK_SECRET'),
+    ],
+
+    'paystack' => [
+        'secret_key' => env('PAYSTACK_SECRET_KEY'),
+        'public_key' => env('PAYSTACK_PUBLIC_KEY'),
+        'webhook_secret' => env('PAYSTACK_WEBHOOK_SECRET'),
+        'base_url' => env('PAYSTACK_BASE_URL', 'https://api.paystack.co'),
+    ],
+
+    'tracking' => [
+        'webhook_secret' => env('TRACKING_WEBHOOK_SECRET'),
+    ],
+
+    'cj' => [
+        'app_id' => env('CJ_APP_ID'),
+        'api_secret' => env('CJ_API_SECRET'),
+        'api_key' => env('CJ_API_KEY'),
+        'base_url' => env('CJ_BASE_URL', 'https://developers.cjdropshipping.com/api2.0'),
+        'timeout' => env('CJ_TIMEOUT', 10),
+        'webhook_secret' => env('CJ_WEBHOOK_SECRET'),
+        'platform_token' => env('CJ_PLATFORM_TOKEN'),
+    ],
+
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => env('GOOGLE_REDIRECT_URI'),
+    ],
+
+    'facebook' => [
+        'client_id' => env('FACEBOOK_CLIENT_ID'),
+        'client_secret' => env('FACEBOOK_CLIENT_SECRET'),
+        'redirect' => env('FACEBOOK_REDIRECT_URI'),
+    ],
+
+    'apple' => [
+        'client_id' => env('APPLE_CLIENT_ID'),
+        'client_secret' => env('APPLE_CLIENT_SECRET'),
+        'redirect' => env('APPLE_REDIRECT_URI'),
+    ],
+
+    'whatsapp' => [
+        'provider' => env('WHATSAPP_PROVIDER', 'meta'),
+        'meta' => [
+            'token' => env('WHATSAPP_META_TOKEN'),
+            'phone_number_id' => env('WHATSAPP_META_PHONE_NUMBER_ID'),
+            'api_version' => env('WHATSAPP_META_API_VERSION', 'v19.0'),
+            'base_url' => env('WHATSAPP_META_BASE_URL', 'https://graph.facebook.com'),
+        ],
+        'twilio' => [
+            'sid' => env('TWILIO_SID'),
+            'token' => env('TWILIO_TOKEN'),
+            'from' => env('TWILIO_WHATSAPP_FROM'),
+        ],
+        'vonage' => [
+            'jwt' => env('VONAGE_JWT'),
+            'from' => env('VONAGE_WHATSAPP_FROM'),
+            'endpoint' => env('VONAGE_WHATSAPP_ENDPOINT', 'https://api.nexmo.com/v1/messages'),
+        ],
+    ],
+
 ];

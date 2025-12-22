@@ -13,6 +13,10 @@ use App\Domain\Orders\Models\OrderItem;
 use App\Domain\Orders\Models\Shipment;
 use Illuminate\Support\Facades\DB;
 use App\Domain\Observability\EventLogger;
+use App\Models\User;
+use Illuminate\Support\Facades\Notification;
+use App\Notifications\AdminFulfillmentIssue;
+use App\Notifications\CustomerShipmentNotification;
 
 class FulfillmentService
 {
@@ -60,6 +64,11 @@ class FulfillmentService
 
             if ($result->trackingNumber || $result->trackingUrl) {
                 $this->recordShipment($orderItem, $result);
+                $this->notifyCustomerShipment($orderItem);
+            }
+
+            if ($result->failed()) {
+                $this->notifyAdminsIssue($orderItem, $result->rawResponse['error'] ?? 'Fulfillment failed');
             }
 
             return $job->refresh();
@@ -128,5 +137,21 @@ class FulfillmentService
                 'raw_events' => $result->rawResponse['events'] ?? null,
             ]
         );
+    }
+
+    private function notifyAdminsIssue(OrderItem $orderItem, string $message): void
+    {
+        $recipients = User::query()->whereIn('role', ['admin', 'staff'])->get();
+        if ($recipients->isNotEmpty()) {
+            Notification::send($recipients, new AdminFulfillmentIssue($orderItem, $message));
+        }
+    }
+
+    private function notifyCustomerShipment(OrderItem $orderItem): void
+    {
+        $customer = $orderItem->order?->customer;
+        if ($customer) {
+            $customer->notify(new CustomerShipmentNotification($orderItem));
+        }
     }
 }

@@ -8,7 +8,7 @@ use App\Filament\Resources\SupplierResource\Pages;
 use App\Models\Supplier;
 use BackedEnum;
 use Filament\Forms;
-use Filament\Resources\Resource;
+use App\Filament\Resources\BaseResource;
 use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -17,17 +17,26 @@ use Filament\Tables\Actions\BulkActionGroup;
 use Filament\Tables\Actions\DeleteBulkAction;
 use Filament\Tables\Actions\EditAction;
 use App\Domain\Fulfillment\Services\SupplierPerformanceService;
+use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
+use Filament\Actions\BulkActionGroup as ActionsBulkActionGroup;
+use Filament\Actions\DeleteBulkAction as ActionsDeleteBulkAction;
+use Filament\Actions\EditAction as ActionsEditAction;
+use Filament\Schemas\Components\Section;
+use UnitEnum;
 
-class SupplierResource extends Resource
+class SupplierResource extends BaseResource
 {
     protected static ?string $model = Supplier::class;
 
     protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-building-storefront';
+    protected static string|UnitEnum|null $navigationGroup = 'Suppliers';
+    protected static ?int $navigationSort = 10;
 
     public static function form(Schema $schema): Schema
     {
         return $schema->schema([
-            Forms\Components\Section::make('Supplier')
+           Section::make('Supplier')
                 ->schema([
                     Forms\Components\TextInput::make('name')->required()->maxLength(255),
                     Forms\Components\Select::make('type')
@@ -43,12 +52,12 @@ class SupplierResource extends Resource
                     Forms\Components\Toggle::make('is_active')->label('Active')->default(true),
                     Forms\Components\Toggle::make('is_blacklisted')->label('Blacklisted')->helperText('Prevents new orders'),
                 ])->columns(2),
-            Forms\Components\Section::make('Contact')
+          Section::make('Contact')
                 ->schema([
                     Forms\Components\KeyValue::make('contact_info')->keyLabel('Field')->valueLabel('Value'),
                     Forms\Components\Textarea::make('notes')->rows(3),
                 ])->columns(1),
-            Forms\Components\Section::make('Integration')
+            Section::make('Integration')
                 ->schema([
                     Forms\Components\TextInput::make('driver_class')
                         ->label('Driver class')
@@ -86,16 +95,16 @@ class SupplierResource extends Resource
                 Tables\Filters\TernaryFilter::make('is_blacklisted'),
             ])
             ->recordActions([
-                EditAction::make(),
-                TableAction::make('toggleActive')
+                ActionsEditAction::make(),
+               Action::make('toggleActive')
                     ->label('Activate/Deactivate')
                     ->action(fn (Supplier $record) => $record->update(['is_active' => ! $record->is_active])),
-                TableAction::make('toggleBlacklist')
+                Action::make('toggleBlacklist')
                     ->label('Toggle Blacklist')
                     ->color('warning')
                     ->requiresConfirmation()
                     ->action(fn (Supplier $record) => $record->update(['is_blacklisted' => ! $record->is_blacklisted])),
-                TableAction::make('refreshMetrics')
+                Action::make('refreshMetrics')
                     ->label('Refresh Metrics')
                     ->icon('heroicon-o-arrow-path')
                     ->action(function (Supplier $record) {
@@ -103,8 +112,15 @@ class SupplierResource extends Resource
                     }),
             ])
             ->toolbarActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                ActionsBulkActionGroup::make([
+                    BulkAction::make('refreshMetrics')
+                        ->label('Refresh Metrics')
+                        ->icon('heroicon-o-arrow-path')
+                        ->action(function ($records) {
+                            $service = app(SupplierPerformanceService::class);
+                            $records->each(fn ($record) => $service->refreshForProvider($record));
+                        }),
+                    ActionsDeleteBulkAction::make(),
                 ]),
             ]);
     }
@@ -118,3 +134,6 @@ class SupplierResource extends Resource
         ];
     }
 }
+
+
+

@@ -25,7 +25,19 @@ class RefundProcessedNotification extends Notification implements ShouldQueue
 
     public function via(object $notifiable): array
     {
-        return ['mail', WhatsAppChannel::class];
+        return ['database', 'broadcast', 'mail', WhatsAppChannel::class];
+    }
+
+    public function toArray(object $notifiable): array
+    {
+        return [
+            'order_number' => $this->order->number,
+            'status' => $this->order->status,
+            'amount' => $this->amount,
+            'currency' => $this->currency,
+            'reason' => $this->reason,
+            'order_url' => url("/orders/track?number={$this->order->number}&email={$this->order->email}"),
+        ];
     }
 
     public function toMail(object $notifiable): MailMessage

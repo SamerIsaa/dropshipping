@@ -9,6 +9,7 @@ use App\Domain\Fulfillment\Models\FulfillmentProvider;
 use App\Domain\Fulfillment\Models\FulfillmentEvent;
 use App\Domain\Products\Models\ProductVariant;
 use App\Domain\Products\Models\SupplierProduct;
+use App\Models\ProductReview;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -71,5 +72,15 @@ class OrderItem extends Model
     public function fulfillmentEvents(): HasMany
     {
         return $this->hasMany(FulfillmentEvent::class, 'order_item_id');
+    }
+
+    public function review(): HasOne
+    {
+        return $this->hasOne(ProductReview::class, 'order_item_id');
+    }
+
+    public function returnRequest(): HasOne
+    {
+        return $this->hasOne(\App\Models\ReturnRequest::class, 'order_item_id');
     }
 }

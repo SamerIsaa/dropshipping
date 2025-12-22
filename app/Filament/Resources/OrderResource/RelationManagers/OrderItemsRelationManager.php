@@ -7,7 +7,11 @@ namespace App\Filament\Resources\OrderResource\RelationManagers;
 use App\Domain\Fulfillment\Models\FulfillmentProvider;
 use App\Domain\Orders\Services\TrackingService;
 use App\Domain\Orders\Models\OrderAuditLog;
+use App\Jobs\DispatchFulfillmentJob;
+use App\Events\Orders\OrderDelivered;
+use Filament\Actions\Action;
 use Filament\Forms;
+use Filament\Notifications\Notification;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -33,6 +37,16 @@ class OrderItemsRelationManager extends RelationManager
                     ->url(fn ($record) => $record->supplierProduct?->external_product_id
                         ? 'https://www.aliexpress.com/item/'.$record->supplierProduct->external_product_id.'.html'
                         : null, true),
+                Tables\Columns\TextColumn::make('fulfillmentJob.status')
+                    ->label('Job')
+                    ->badge()
+                    ->color(fn ($state) => match ($state) {
+                        'succeeded', 'fulfilled' => 'success',
+                        'failed' => 'danger',
+                        'needs_action' => 'warning',
+                        default => 'gray',
+                    })
+                    ->tooltip(fn ($record) => $record->fulfillmentJob?->last_error),
                 Tables\Columns\TextColumn::make('tracking_number_display')
                     ->label('Tracking')
                     ->getStateUsing(fn ($record) => $record->shipments()->latest('shipped_at')->value('tracking_number'))
@@ -41,11 +55,29 @@ class OrderItemsRelationManager extends RelationManager
             ])
             ->filters([])
             ->headerActions([])
-            ->actions([
-                Tables\Actions\Action::make('addTracking')
+            ->recordActions([
+               Action::make('dispatchFulfillment')
+                    ->label('Dispatch')
+                    ->icon('heroicon-o-paper-airplane')
+                    ->requiresConfirmation()
+                    ->visible(fn ($record) => $record->fulfillmentProvider !== null)
+                    ->action(function ($record): void {
+                        DispatchFulfillmentJob::dispatch($record->id);
+
+                        $record->update(['fulfillment_status' => 'fulfilling']);
+
+                        OrderAuditLog::create([
+                            'order_id' => $record->order_id,
+                            'user_id' => auth()->id(),
+                            'action' => 'fulfillment_dispatched',
+                            'note' => 'Dispatched to provider',
+                            'payload' => ['order_item_id' => $record->id],
+                        ]);
+                    }),
+                Action::make('addTracking')
                     ->label('Add Tracking')
                     ->icon('heroicon-o-truck')
-                    ->form([
+                    ->schema([
                         Forms\Components\TextInput::make('tracking_number')->required(),
                         Forms\Components\TextInput::make('carrier'),
                         Forms\Components\TextInput::make('tracking_url')->url(),
@@ -71,10 +103,10 @@ class OrderItemsRelationManager extends RelationManager
                             'payload' => $data,
                         ]);
                     }),
-                Tables\Actions\Action::make('addTrackingEvent')
+               Action::make('addTrackingEvent')
                     ->label('Add Tracking Event')
                     ->icon('heroicon-o-clock')
-                    ->form([
+                    ->schema([
                         Forms\Components\TextInput::make('tracking_number')
                             ->label('Tracking number')
                             ->required(),
@@ -113,10 +145,10 @@ class OrderItemsRelationManager extends RelationManager
                             'payload' => $data,
                         ]);
                     }),
-                Tables\Actions\Action::make('overrideStatus')
+               Action::make('overrideStatus')
                     ->label('Override Status')
                     ->color('warning')
-                    ->form([
+                    ->schema([
                         Forms\Components\Select::make('fulfillment_status')->options([
                             'pending' => 'Pending',
                             'awaiting_fulfillment' => 'Awaiting',
@@ -136,10 +168,10 @@ class OrderItemsRelationManager extends RelationManager
                             'payload' => ['status' => $data['fulfillment_status']],
                         ]);
                     }),
-                Tables\Actions\Action::make('updateStatus')
+                Action::make('updateStatus')
                     ->label('Update Status')
                     ->icon('heroicon-o-check-circle')
-                    ->form([
+                    ->schema([
                         Forms\Components\Select::make('fulfillment_status')->options([
                             'pending' => 'Pending',
                             'awaiting_fulfillment' => 'Awaiting',
@@ -160,7 +192,81 @@ class OrderItemsRelationManager extends RelationManager
                             'payload' => ['status' => $data['fulfillment_status']],
                         ]);
                     }),
+                Action::make('ingestTrackingEvents')
+                    ->label('Ingest Tracking JSON')
+                    ->icon('heroicon-o-arrow-down-tray')
+                    ->schema([
+                        Forms\Components\Textarea::make('events_json')
+                            ->rows(5)
+                            ->required()
+                            ->helperText('Paste array of tracking events with status_code and occurred_at'),
+                        Forms\Components\TextInput::make('tracking_number')
+                            ->label('Tracking number')
+                            ->required(),
+                    ])
+                    ->action(function ($record, array $data): void {
+                        $tracking = app(TrackingService::class);
+                        $events = json_decode($data['events_json'], true);
+
+                        if (! is_array($events)) {
+                            Notification::make()
+                                ->title('Invalid JSON payload.')
+                                ->danger()
+                                ->send();
+                            return;
+                        }
+
+                        $shipment = $record->shipments()
+                            ->where('tracking_number', $data['tracking_number'])
+                            ->first();
+
+                        if (! $shipment) {
+                            $shipment = $tracking->recordShipment($record, [
+                                'tracking_number' => $data['tracking_number'],
+                                'carrier' => null,
+                                'shipped_at' => now(),
+                            ]);
+                        }
+
+                        $tracking->syncFromWebhook($shipment, $events);
+
+                        OrderAuditLog::create([
+                            'order_id' => $record->order_id,
+                            'user_id' => auth()->id(),
+                            'action' => 'tracking_ingested',
+                            'note' => 'Tracking events ingested',
+                            'payload' => ['tracking_number' => $data['tracking_number']],
+                        ]);
+                    }),
+              Action::make('markDelivered')
+                    ->label('Mark Delivered')
+                    ->icon('heroicon-o-check-badge')
+                    ->color('success')
+                    ->requiresConfirmation()
+                    ->action(function ($record): void {
+                        $shipment = $record->shipments()->latest('shipped_at')->first();
+                        if ($shipment) {
+                            $shipment->update(['delivered_at' => $shipment->delivered_at ?? now()]);
+                        }
+
+                        $record->update(['fulfillment_status' => 'fulfilled']);
+
+                        // If all items are fulfilled, roll the order status up.
+                        $order = $record->order;
+                        if ($order->orderItems()->where('fulfillment_status', '!=', 'fulfilled')->doesntExist()) {
+                            $order->update(['status' => 'fulfilled']);
+                            event(new OrderDelivered($order));
+                        }
+
+                        OrderAuditLog::create([
+                            'order_id' => $record->order_id,
+                            'user_id' => auth()->id(),
+                            'action' => 'marked_delivered',
+                            'note' => 'Marked delivered by admin',
+                            'payload' => ['order_item_id' => $record->id],
+                        ]);
+                    }),
             ])
-            ->bulkActions([]);
+            ->toolbarActions([]);
     }
 }

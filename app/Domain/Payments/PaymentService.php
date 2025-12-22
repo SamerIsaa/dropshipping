@@ -8,9 +8,12 @@ use App\Domain\Orders\Models\Order;
 use App\Domain\Payments\Models\Payment;
 use App\Domain\Payments\Models\PaymentWebhook;
 use App\Domain\Observability\EventLogger;
+use App\Events\Orders\OrderPaid;
+use App\Jobs\DispatchFulfillmentJob;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
+use InvalidArgumentException;
 
 class PaymentService
 {
@@ -24,6 +27,8 @@ class PaymentService
     public function handleWebhook(string $provider, string $eventId, array $payload): Payment
     {
         return DB::transaction(function () use ($provider, $eventId, $payload) {
+            $this->assertPayloadHasBasics($payload);
+
             $webhook = PaymentWebhook::firstOrCreate(
                 ['external_event_id' => $eventId],
                 [
@@ -42,7 +47,7 @@ class PaymentService
 
             $this->applyStatusFromPayload($payment, $payload);
 
-            $this->logger->payment($payment, 'webhook', $payload['status'] ?? 'pending', null, $payload);
+            $this->logger->payment($payment, 'webhook', strtolower($payload['status'] ?? 'pending'), null, $payload);
 
             $webhook->payment()->associate($payment);
             $webhook->processed_at = now();
@@ -57,16 +62,29 @@ class PaymentService
      */
     public function markAsPaid(Payment $payment): Payment
     {
-        if ($payment->status === 'paid') {
-            return $payment;
+        $wasPaid = $payment->status === 'paid';
+
+        if (! $wasPaid) {
+            $payment->fill([
+                'status' => 'paid',
+                'paid_at' => now(),
+            ])->save();
         }
 
-        $payment->fill([
-            'status' => 'paid',
-            'paid_at' => now(),
-        ])->save();
+        $order = $payment->order()->first();
 
-        $payment->order->update(['payment_status' => 'paid']);
+        if ($order) {
+            $order->payment_status = 'paid';
+            if ($order->status === 'pending') {
+                $order->status = 'paid';
+            }
+            $order->save();
+            $this->dispatchFulfillmentForOrder($order);
+
+            if (! $wasPaid) {
+                event(new OrderPaid($order));
+            }
+        }
 
         $this->logger->payment($payment, 'payment', 'paid', 'Payment marked as paid');
 
@@ -78,15 +96,15 @@ class PaymentService
         $providerReference = $payload['provider_reference'] ?? $payload['transaction_id'] ?? null;
         $orderNumber = $payload['order_number'] ?? null;
         $amount = $payload['amount'] ?? null;
-        $currency = $payload['currency'] ?? 'USD';
+        $currency = $payload['currency'] ?? null;
         $idempotencyKey = $payload['idempotency_key'] ?? $payload['event_id'] ?? null;
 
-        if (! $orderNumber) {
-            throw new RuntimeException('Order number missing in webhook payload');
-        }
+        $this->assertPayloadHasBasics($payload);
 
         /** @var Order $order */
         $order = Order::where('number', $orderNumber)->firstOrFail();
+
+        $this->assertTotalsMatch($order, $amount, $currency);
 
         $payment = Payment::firstOrCreate(
             [
@@ -97,7 +115,7 @@ class PaymentService
                 'order_id' => $order->id,
                 'status' => 'pending',
                 'amount' => $amount ?? $order->grand_total,
-                'currency' => $currency,
+                'currency' => $currency ?? $order->currency,
                 'meta' => $payload,
                 'idempotency_key' => $idempotencyKey,
             ]
@@ -128,6 +146,78 @@ class PaymentService
 
         if ($status === 'authorized') {
             $payment->update(['status' => 'authorized']);
+        }
+    }
+
+    private function assertPayloadHasBasics(array $payload): void
+    {
+        if (empty($payload['order_number'])) {
+            throw new RuntimeException('Order number missing in webhook payload');
+        }
+
+        if (! isset($payload['amount']) || ! is_numeric($payload['amount'])) {
+            throw new RuntimeException('Amount missing or invalid in webhook payload');
+        }
+
+        if (empty($payload['currency'])) {
+            throw new RuntimeException('Currency missing in webhook payload');
+        }
+    }
+
+    private function assertTotalsMatch(Order $order, float|string|null $amount, ?string $currency): void
+    {
+        $numericAmount = (float) $amount;
+        if ($numericAmount <= 0) {
+            throw new InvalidArgumentException('Amount must be positive.');
+        }
+
+        if (strcasecmp((string) $currency, $order->currency) !== 0) {
+            throw new InvalidArgumentException('Currency mismatch for order.');
+        }
+
+        if (abs($numericAmount - (float) $order->grand_total) > 0.01) {
+            throw new InvalidArgumentException('Amount does not match order total.');
+        }
+    }
+
+    private function dispatchFulfillmentForOrder(Order $order): void
+    {
+        $order->loadMissing([
+            'orderItems.fulfillmentProvider',
+            'orderItems.supplierProduct.fulfillmentProvider',
+            'orderItems.productVariant.product.defaultFulfillmentProvider',
+        ]);
+
+        $dispatched = false;
+
+        foreach ($order->orderItems as $item) {
+            if (in_array($item->fulfillment_status, ['fulfilled', 'failed', 'cancelled'], true)) {
+                continue;
+            }
+
+            if ($item->fulfillmentJob()->exists()) {
+                continue;
+            }
+
+            $hasProvider = $item->fulfillmentProvider
+                || $item->supplierProduct?->fulfillmentProvider
+                || $item->productVariant?->product?->defaultFulfillmentProvider;
+
+            if (! $hasProvider) {
+                Log::warning('Skipping fulfillment dispatch; no provider resolved.', [
+                    'order_id' => $order->id,
+                    'order_item_id' => $item->id,
+                ]);
+                continue;
+            }
+
+            DispatchFulfillmentJob::dispatch($item->id);
+            $item->update(['fulfillment_status' => 'fulfilling']);
+            $dispatched = true;
+        }
+
+        if ($dispatched && ! in_array($order->status, ['fulfilled', 'cancelled', 'refunded'], true)) {
+            $order->update(['status' => 'fulfilling']);
         }
     }
 }

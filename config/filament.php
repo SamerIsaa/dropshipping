@@ -4,7 +4,7 @@ return [
     'path' => env('FILAMENT_PATH', 'admin'),
     'domain' => env('FILAMENT_DOMAIN', null),
     'auth' => [
-        'guard' => env('FILAMENT_AUTH_GUARD', 'web'),
+        'guard' => env('FILAMENT_AUTH_GUARD', 'admin'),
         'pages' => [
             'login' => \Filament\Http\Livewire\Auth\Login::class,
         ],

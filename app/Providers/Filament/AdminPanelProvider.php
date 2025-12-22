@@ -28,10 +28,12 @@ class AdminPanelProvider extends PanelProvider
             ->default()
             ->id('admin')
             ->path(config('filament.path', 'admin'))
-            ->brandName('Dispatch Admin')
+            ->authGuard(config('filament.auth.guard', 'admin'))
+            ->login()
+            ->brandName('Simbazu Admin')
             ->favicon(asset('favicon.ico'))
             ->colors([
-                'primary' => Color::Slate,
+                'primary' => Color::Zinc,
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')

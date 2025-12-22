@@ -2,46 +2,58 @@
   <StorefrontLayout>
     <article class="mx-auto max-w-3xl space-y-8">
       <header class="space-y-2">
-        <p class="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">Customs</p>
-        <h1 class="text-3xl font-semibold text-slate-900">Customs Disclaimer</h1>
+        <p class="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">{{ t('Customs') }}</p>
+        <h1 class="text-3xl font-semibold text-slate-900">{{ t('Customs Disclaimer') }}</h1>
         <p class="text-sm text-slate-600">
-          What to expect during customs clearance for shipments to Côte d’Ivoire.
+          {{ t('What to expect during customs clearance for shipments to Cote d\'Ivoire.') }}
         </p>
       </header>
 
-      <section class="space-y-3">
-        <h2 class="text-lg font-semibold text-slate-900">Duties & VAT</h2>
-        <p class="text-sm text-slate-600">
-          Duties and VAT are estimated and shown at checkout when available. Final charges are determined by local
-          customs and may vary. You are responsible for any official customs fees.
-        </p>
-      </section>
+      <div
+        v-if="policyHtml"
+        class="space-y-4 text-sm text-slate-600 leading-7 whitespace-pre-line"
+        v-html="policyHtml"
+      ></div>
+      <template v-else>
+        <section class="space-y-3">
+          <h2 class="text-lg font-semibold text-slate-900">{{ t('Duties & VAT') }}</h2>
+          <p class="text-sm text-slate-600">
+            {{ t('Duties and VAT are estimated and shown at checkout when available. Final charges are determined by local customs and may vary. You are responsible for any official customs fees.') }}
+          </p>
+        </section>
 
-      <section class="space-y-3">
-        <h2 class="text-lg font-semibold text-slate-900">Documentation</h2>
-        <p class="text-sm text-slate-600">
-          Customs may request identification or additional documents. Please respond promptly to avoid delays.
-        </p>
-      </section>
+        <section class="space-y-3">
+          <h2 class="text-lg font-semibold text-slate-900">{{ t('Documentation') }}</h2>
+          <p class="text-sm text-slate-600">
+            {{ t('Customs may request identification or additional documents. Please respond promptly to avoid delays.') }}
+          </p>
+        </section>
 
-      <section class="space-y-3">
-        <h2 class="text-lg font-semibold text-slate-900">Delays</h2>
-        <p class="text-sm text-slate-600">
-          Clearance times can vary. If a delay occurs, we will assist with updates and work with the carrier to resolve
-          issues.
-        </p>
-      </section>
+        <section class="space-y-3">
+          <h2 class="text-lg font-semibold text-slate-900">{{ t('Delays') }}</h2>
+          <p class="text-sm text-slate-600">
+            {{ t('Clearance times can vary. If a delay occurs, we will assist with updates and work with the carrier to resolve issues.') }}
+          </p>
+        </section>
 
-      <section class="space-y-3">
-        <h2 class="text-lg font-semibold text-slate-900">Contact</h2>
-        <p class="text-sm text-slate-600">
-          For customs questions, reach out at customs@dispatch.example with your order number and tracking details.
-        </p>
-      </section>
+        <section class="space-y-3">
+          <h2 class="text-lg font-semibold text-slate-900">{{ t('Contact') }}</h2>
+          <p class="text-sm text-slate-600">
+            {{ t('For customs questions, reach out at :email with your order number and tracking details.', { email: supportEmail }) }}
+          </p>
+        </section>
+      </template>
     </article>
   </StorefrontLayout>
 </template>
 
 <script setup>
 import StorefrontLayout from '@/Layouts/StorefrontLayout.vue'
+import { usePage } from '@inertiajs/vue3'
+import { useTranslations } from '@/i18n'
+
+const site = usePage().props.site
+const { t } = useTranslations()
+const policyHtml = (site?.customs_disclaimer ?? '').trim()
+const supportEmail = site?.support_email ?? 'support@dispatch.store'
 </script>

@@ -2,35 +2,49 @@
 
 declare(strict_types=1);
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Storefront;
 
+use App\Http\Controllers\Controller;
 use App\Models\Order;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Routing\Controller;
-use Symfony\Component\HttpFoundation\Response;
+use Inertia\Inertia;
+use Inertia\Response;
 
-class TrackingController extends Controller
+class TrackingPageController extends Controller
 {
-    public function __invoke(Request $request): JsonResponse
+    public function __invoke(Request $request): Response
     {
-        $orderNumber = $request->input('number');
-        $email = $request->input('email');
+        $orderNumber = $request->query('number');
+        $email = $request->query('email');
+        $tracking = null;
+        $error = null;
 
-        if (! $orderNumber || ! $email) {
-            return response()->json(['error' => 'Missing number or email'], Response::HTTP_BAD_REQUEST);
+        if ($orderNumber && $email) {
+            $order = Order::query()
+                ->where('number', $orderNumber)
+                ->where('email', $email)
+                ->with(['orderItems.shipments.trackingEvents'])
+                ->first();
+
+            if (! $order) {
+                $error = 'Order not found. Please check your details.';
+            } else {
+                $tracking = $this->buildTrackingPayload($order);
+            }
         }
 
-        $order = Order::query()
-            ->where('number', $orderNumber)
-            ->where('email', $email)
-            ->with(['orderItems.shipments.trackingEvents'])
-            ->first();
+        return Inertia::render('Orders/Tracking', [
+            'tracking' => $tracking,
+            'lookup' => [
+                'number' => $orderNumber,
+                'email' => $email,
+            ],
+            'error' => $error,
+        ]);
+    }
 
-        if (! $order) {
-            return response()->json(['error' => 'Order not found'], Response::HTTP_NOT_FOUND);
-        }
-
+    private function buildTrackingPayload(Order $order): array
+    {
         $shipments = $order->orderItems->flatMap(function ($item) {
             return $item->shipments->map(function ($shipment) use ($item) {
                 return [
@@ -56,11 +70,11 @@ class TrackingController extends Controller
             });
         })->values();
 
-        return response()->json([
+        return [
             'order_number' => $order->number,
             'status' => $order->status,
             'payment_status' => $order->payment_status,
             'shipments' => $shipments,
-        ]);
+        ];
     }
 }
