@@ -43,7 +43,7 @@
               <span v-if="discount"> ({{ displayPrice(discount) }} {{ t('off') }})</span>
             </p>
 
-            <!-- Applied Promotions (not just coupon) -->
+<!--             Applied Promotions (not just coupon) -->
             <div v-if="appliedPromotions && appliedPromotions.length" class="applied-promotions">
               <div class="text-xs font-semibold text-green-700 mb-1">{{ t('Promotions applied:') }}</div>
               <ul class="space-y-1">
@@ -56,8 +56,8 @@
               </ul>
             </div>
           </div>
-// Accept appliedPromotions as a prop (array of applied promotions)
-const appliedPromotions = computed(() => Array.isArray(props.appliedPromotions) ? props.appliedPromotions : [])
+<!--// Accept appliedPromotions as a prop (array of applied promotions)-->
+<!--const appliedPromotions = computed(() => Array.isArray(props.appliedPromotions) ? props.appliedPromotions : [])-->
 
           <div class="flex items-center justify-between text-sm">
             <span>{{ t('Subtotal') }}</span>
