@@ -69,8 +69,9 @@ class CJDropshippingClient
      */
     public function freightCalculate(array $payload): ApiResponse
     {
+        $client = $this->authClient();
         // You may need to adjust the endpoint or payload according to CJ API docs
-        return $this->client->post('/v1/freight/calculate', $payload);
+        return $client->post('/v1/logistic/freightCalculate', $payload);
     }
 
     public function getAccessToken()
